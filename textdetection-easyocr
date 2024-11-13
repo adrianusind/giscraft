@@ -21,7 +21,7 @@ client = gspread.authorize(creds)
 drive_service = build('drive', 'v3', credentials=creds)
 
 # Step 3: Open Google Spreadsheet using spreadsheet_id
-spreadsheet_id = "1qhgP-2z4maomrKQX20X5PiuikR7-qqXhdCyg5m0mrNY"  # Replace with your Spreadsheet ID
+spreadsheet_id = "1IeHizTcHJPMUqe5aaIV_J6hwnNeh1Kv68c7OP7m64n4"  # Replace with your Spreadsheet ID
 try:
     spreadsheet = client.open_by_key(spreadsheet_id)
 except gspread.exceptions.SpreadsheetNotFound:
@@ -42,8 +42,8 @@ else:
 
     # Step 4: Process each image
     for i, row in enumerate(data):
-        photo_name = row['Filename']
-        photo_link = row['URL']
+        photo_name = row['Filename'] # Replace with your filename column
+        photo_link = row['URL'] # Replace with your link name column
 
         # Extract file ID from URL
         file_id = extract_file_id(photo_link)
