@@ -1,0 +1,92 @@
+
+// Replace with your Google Drive folder ID
+var FOLDER_ID = "11pAbq4fY_d_zbQCYHH1X_CKekje9_V9E";
+
+function processFolder() {
+  var folder = DriveApp.getFolderById(FOLDER_ID);
+  var folderName = folder.getName();
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // Process subfolders
+  var foldersSheet = spreadsheet.getSheetByName("Folders") || spreadsheet.insertSheet("Folders");
+  listAllFoldersInOpenedFolder(foldersSheet);
+  
+  // Process files
+  var filesSheet = spreadsheet.getSheetByName("Files") || spreadsheet.insertSheet("Files");
+  getFilesInFolder(filesSheet, folderName);
+}
+
+function listAllFoldersInOpenedFolder(sheet) {
+  try {
+    var folder = DriveApp.getFolderById(FOLDER_ID);
+    var folders = folder.getFolders();
+    
+    sheet.clear();
+    sheet.appendRow(["Type", "Folder Name", "Folder ID", "Folder URL", "Created Date"]);
+    
+    while (folders.hasNext()) {
+      var subfolder = folders.next();
+      sheet.appendRow([
+        "Folder",
+        subfolder.getName(),
+        subfolder.getId(),
+        subfolder.getUrl(),
+        subfolder.getDateCreated()
+      ]);
+    }
+  } catch (e) {
+    Logger.log('Error in listAllFoldersInOpenedFolder: ' + e.toString());
+    SpreadsheetApp.getUi().alert('Error in listing folders: ' + e.message);
+  }
+}
+
+function getFilesInFolder(sheet, folderName) {
+  var folder = DriveApp.getFolderById(FOLDER_ID);
+  var properties = PropertiesService.getScriptProperties();
+  
+  var token = properties.getProperty('CONTINUATION_TOKEN');
+  var files = token ? DriveApp.continueFileIterator(token) : folder.getFiles();
+  
+  var data = [];
+  var batchSize = 500;
+  var rowIndex = Number(properties.getProperty('ROW_INDEX')) || 2;
+  
+  var startTime = new Date().getTime();
+  var maxExecutionTime = 5 * 60 * 1000; // 5 minutes
+  
+  if (rowIndex === 2) {
+    sheet.clear();
+    sheet.appendRow(["Type", "Filename", "ID", "Folder", "URL", "Last Modified Date"]);
+  }
+  
+  while (files.hasNext()) {
+    for (var i = 0; i < batchSize && files.hasNext(); i++) {
+      var file = files.next();
+      data.push([
+        "File",
+        file.getName(),
+        file.getId(),
+        folderName,
+        file.getUrl(),
+        file.getLastUpdated()
+      ]);
+    }
+    
+    sheet.getRange(rowIndex, 1, data.length, 6).setValues(data);
+    rowIndex += data.length;
+    data = [];
+    
+    var currentTime = new Date().getTime();
+    if (currentTime - startTime > maxExecutionTime - 30000) {
+      properties.setProperty('CONTINUATION_TOKEN', files.getContinuationToken());
+      properties.setProperty('ROW_INDEX', rowIndex);
+      Utilities.sleep(30000);
+      startTime = new Date().getTime();
+    }
+  }
+  
+  properties.deleteProperty('CONTINUATION_TOKEN');
+  properties.deleteProperty('ROW_INDEX');
+  
+  Logger.log("Completed processing files in folder");
+}
