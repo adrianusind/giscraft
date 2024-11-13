@@ -1,0 +1,86 @@
+from google.colab import drive
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+import io
+import re
+import easyocr
+
+# Step 1: Mount Google Drive
+drive.mount('/content/drive')
+
+# Step 2: Configure access to Google Sheets and Google Drive API
+scope = ["https://spreadsheets.google.com/feeds", 
+         "https://www.googleapis.com/auth/spreadsheets",
+         "https://www.googleapis.com/auth/drive.file", 
+         "https://www.googleapis.com/auth/drive"]
+
+creds = ServiceAccountCredentials.from_json_keyfile_name('/content/drive/My Drive/path/to/credentials.json', scope)
+client = gspread.authorize(creds)
+drive_service = build('drive', 'v3', credentials=creds)
+
+# Step 3: Open Google Spreadsheet using spreadsheet_id
+spreadsheet_id = "1qhgP-2z4maomrKQX20X5PiuikR7-qqXhdCyg5m0mrNY"  # Replace with your Spreadsheet ID
+try:
+    spreadsheet = client.open_by_key(spreadsheet_id)
+except gspread.exceptions.SpreadsheetNotFound:
+    print(f"Spreadsheet with ID '{spreadsheet_id}' not found. Check sharing permissions and ID.")
+else:
+    sheet = spreadsheet.worksheet("Sheet1")  # Replace with your sheet name
+
+    # Fetch photo names and links from the spreadsheet
+    data = sheet.get_all_records()
+
+    # Function to extract file ID from Google Drive URL
+    def extract_file_id(url):
+        match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
+        return match.group(1) if match else None
+
+    # Initialize EasyOCR reader
+    reader = easyocr.Reader(['id'], gpu=False)  # Adjust language as needed
+
+    # Step 4: Process each image
+    for i, row in enumerate(data):
+        photo_name = row['Filename']
+        photo_link = row['URL']
+
+        # Extract file ID from URL
+        file_id = extract_file_id(photo_link)
+        if file_id:
+            # Download the image from Google Drive
+            request = drive_service.files().get_media(fileId=file_id)
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+                print(f"Downloaded {int(status.progress() * 100)}%.")
+
+            # Read the image for OCR
+            fh.seek(0)
+            try:
+                result = reader.readtext(fh.getvalue())
+
+                # Filter text by bounding box size if needed
+                text_large = []
+                size_threshold = 30
+                for res in result:
+                    ((x1, y1), (x2, y2), (x3, y3), (x4, y4)), text, confidence = res
+                    height = y3 - y1
+                    width = x2 - x1
+                    if height > size_threshold or width > size_threshold:
+                        text_large.append(text)
+
+                # Join filtered text
+                final_text = " ".join(text_large)
+
+                # Write OCR result to Google Sheet
+                cell_location = f"C{i+2}"  # Assuming column C for OCR text
+                sheet.update_acell(cell_location, final_text)
+                print(f"OCR result saved in row {i+2}, column C.")
+            except Exception as e:
+                print(f"Failed to process image '{photo_name}': {e}")
+        else:
+            print(f"Invalid Google Drive URL format for: {photo_link}")
+        print("=" * 50)
